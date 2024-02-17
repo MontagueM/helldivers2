@@ -177,7 +177,7 @@ partial class Program
         public UInt64 UnkId00;
         public UInt64 UnkId08;
         public Int64 DataOffset10;
-        public UInt16 Unk18;
+        public UInt16 StreamDataOffset18;
         public UInt16 Unk1A;
         public UInt32 Zeros1C;
         public Int64 GPUDataOffset20;
@@ -190,6 +190,25 @@ partial class Program
         public UInt32 UnkSize48;
         public UInt32 UnkIndex4C;
     }
+    
+    [StructLayout(LayoutKind.Sequential, Size = 0xC0)]
+    struct TextureHeader
+    {
+        public UInt32 UnkId00;
+        public Int32 Unk04;
+        public Int32 Unk08;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 0x0F)]
+        public List<TextureDetail> TextureDetails;
+    }
+    
+    [StructLayout(LayoutKind.Sequential, Size = 0x0C)]
+    struct TextureDetail
+    {
+        public Int32 DataOffset;
+        public Int32 DataSize;
+        public Int16 Width;
+        public Int16 Height;
+    }
 
     class Texture
     {
@@ -200,6 +219,8 @@ partial class Program
     enum ResourceType : ulong
     {
         Texture = 0xCD4238C6_A0C69E32,
+        Model = 0xE0A48D0B_E9A7453F,
+        Havok = 0x5F7203C8_F280DAb8
     }
 
     private static void ParseDataFiles()
@@ -212,8 +233,10 @@ partial class Program
         string file = "009da023c64d178d"; // huge file with textures, models, etc.
         var topfile = new HDFile(Path.Combine(dataDir, file));
         var gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
+        var streamFile = new HDFile(Path.Combine(dataDir, file + ".stream"));
         var reader = topfile.GetReader();
         var gpuReader = gpuFile.GetReader();
+        var streamReader = streamFile.GetReader();
         var header = reader.ReadType<Header>();
         List<Unk1> unk1s = new();
         for (int i = 0; i < header.UnkCount1; i++)
@@ -228,29 +251,42 @@ partial class Program
         Dictionary<int, List<UnkDataHeader>> unkDataHeaders = new();
         for (int i = 0; i < header.UnkCount1; i++)
         {
-            var unkDataHeader = new List<UnkDataHeader>();
+            var unkDataHeaderss = new List<UnkDataHeader>();
             for (ulong j = 0; j < unk1s[i].DataCount; j++)
             {
-                unkDataHeader.Add(reader.ReadType<UnkDataHeader>());
+                var unkDataHeader = reader.ReadType<UnkDataHeader>();
+                unkDataHeaderss.Add(unkDataHeader);
             }
-            unkDataHeaders.Add(i, unkDataHeader);
+            unkDataHeaders.Add(i, unkDataHeaderss);
         }
         
         List<Texture> textures = new();
         List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
-        foreach (var unkDataHeader in unkDataHeaderTextures)
+        for (int i = 0; i < unkDataHeaderTextures.Count; i++)
         {
+            var unkDataHeader = unkDataHeaderTextures[i];
             reader.BSeek(unkDataHeader.DataOffset10 + 0xC0); // unknown 0xC0
             var ddsHeaderBytes = reader.ReadBytes(0x94);  // assumes DX10 extra
-            gpuReader.BSeek(unkDataHeader.GPUDataOffset20);
-            var ddsData = gpuReader.ReadBytes((int)unkDataHeader.GPUDataSize40);
-            textures.Add(new Texture { DDSHeaderBytes = ddsHeaderBytes, DDSData = ddsData });
+            if (unkDataHeader.StreamDataSize3C > 0)
+            {
+                streamReader.BSeek(unkDataHeader.StreamDataOffset18);
+                var streamData = streamReader.ReadBytes((int)unkDataHeader.StreamDataSize3C);
+                File.WriteAllBytes(Path.Combine(saveDir, $"{file}_{i}.dds"), ddsHeaderBytes.Concat(streamData).ToArray());
+            }
+            else
+            {
+                gpuReader.BSeek(unkDataHeader.GPUDataOffset20);
+                var gpuData = gpuReader.ReadBytes((int)unkDataHeader.GPUDataSize40);
+                File.WriteAllBytes(Path.Combine(saveDir, $"{file}_{i}.dds"), ddsHeaderBytes.Concat(gpuData).ToArray());
+            }
         }
-        
-        for (int i = 0; i < textures.Count; i++)
+
+        List<UnkDataHeader> unkDataHeaderModels = unkDataHeaders.Where(kvp => kvp.Value[0].UnkId08 == (ulong)ResourceType.Model).Select(kvp => kvp.Value).FirstOrDefault();
+        foreach (var unkDataHeader in unkDataHeaderModels)
         {
-            var texture = textures[i];
-            File.WriteAllBytes(Path.Combine(saveDir, $"{file}_{i}.dds"), texture.DDSHeaderBytes.Concat(texture.DDSData).ToArray());
+            reader.BSeek(unkDataHeader.DataOffset10);
+            var data = reader.ReadBytes((int)unkDataHeader.DataSize38);
+            // File.WriteAllBytes(Path.Combine(saveDir, $"{file}_model_{unkDataHeader.UnkIndex4C}.bin"), data);
         }
 
         var a = 0;
