@@ -165,7 +165,7 @@ partial class Program
     [StructLayout(LayoutKind.Sequential, Size = 0x18)]
     struct Unk1  // one for each data type
     {
-        public UInt64 UnkId;
+        public UInt64 TypeId;
         public UInt64 DataCount;
         public UInt32 UnkSize1; // specifies ID size of data header?
         public UInt32 UnkSize2;  // specifies data size of data header?
@@ -195,6 +195,11 @@ partial class Program
     {
         public byte[] DDSHeaderBytes;
         public byte[] DDSData;
+    }
+
+    enum ResourceType : ulong
+    {
+        Texture = 0xCD4238C6_A0C69E32,
     }
 
     private static void ParseDataFiles()
@@ -232,7 +237,8 @@ partial class Program
         }
         
         List<Texture> textures = new();
-        foreach (var unkDataHeader in unkDataHeaders[0])
+        List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
+        foreach (var unkDataHeader in unkDataHeaderTextures)
         {
             reader.BSeek(unkDataHeader.DataOffset10 + 0xC0); // unknown 0xC0
             var ddsHeaderBytes = reader.ReadBytes(0x94);  // assumes DX10 extra
