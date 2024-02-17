@@ -9,8 +9,8 @@ partial class Program
 {
     public static void Main(string[] args)
     {
-        // ParseDataFiles();
-        ParseTypeLib();
+        ParseDataFiles();
+        // ParseTypeLib();
     }
     
     [StructLayout(LayoutKind.Sequential, Size = 0x24)]
@@ -201,8 +201,10 @@ partial class Program
     {
         string dataDir = @"D:\SteamLibrary\steamapps\common\Helldivers 2\data\";
         string saveDir = @"C:\Users\monta\OneDrive\helldivers2\saved\";
-        string file = "05b7f582b44bac01";
-        // string file = "01710ddcfcdc9e8f";
+        // string file = "05b7f582b44bac01"; // 4 textures
+        // string file = "01710ddcfcdc9e8f"; // 1 texture
+        // string file = "fd26c7b93257d7a6";  // no stream file
+        string file = "009da023c64d178d"; // huge file with textures, models, etc.
         var topfile = new HDFile(Path.Combine(dataDir, file));
         var gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
         var reader = topfile.GetReader();
@@ -212,6 +214,11 @@ partial class Program
         for (int i = 0; i < header.UnkCount1; i++)
         {
             unk1s.Add(reader.ReadType<Unk1>());
+            if (i < header.UnkCount1-1)
+            {
+                // padded to 0x10
+                reader.Seek(0x8, SeekOrigin.Current);
+            }
         }
         Dictionary<int, List<UnkDataHeader>> unkDataHeaders = new();
         for (int i = 0; i < header.UnkCount1; i++)
