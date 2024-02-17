@@ -177,8 +177,7 @@ partial class Program
         public UInt64 UnkId00;
         public UInt64 UnkId08;
         public Int64 DataOffset10;
-        public UInt16 StreamDataOffset18;
-        public UInt16 Unk1A;
+        public UInt32 StreamDataOffset18;
         public UInt32 Zeros1C;
         public Int64 GPUDataOffset20;
         public UInt64 Unk28;
