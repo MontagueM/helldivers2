@@ -29,13 +29,14 @@ partial class Program
         //     ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
         // }
         ParseDataFiles(dataDir, saveDir, file);
-        // SearchBytesInAllFiles(dataDir, "606C89161531C5E9");
+        // SearchBytesInAllFiles(dataDir, "F3 DC 57 1D 3B A6 8B 84");
         // ParseTypeLib();
     }
     
     private static byte[] StringToByteArray(string hex)
     {
         // Convert the string to a byte array.
+        hex = hex.Replace(" ", "");
         byte[] bytes = new byte[hex.Length / 2];
         for (int i = 0; i < bytes.Length; i++)
         {
@@ -357,7 +358,7 @@ partial class Program
         }
         for (int i = 0; i < unkDataHeaderModels.Count; i++)
         {
-            if (i != 109)
+            if (i != 230)
             {
                 continue;
             }
@@ -388,7 +389,7 @@ partial class Program
             }
 
                         
-            // unk parts
+            // parts
             reader.BSeek(unkDataHeader.DataOffset10+0x64);
             long unkOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
             reader.BSeek(unkOffset);
@@ -426,6 +427,20 @@ partial class Program
                 {
                     parts.Add(unkPartHeader.MeshIndex3C, subparts.Values.ToList());
                 }
+            }
+            
+            // materials
+            reader.BSeek(unkDataHeader.DataOffset10+0x70);
+            long materialOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
+            reader.BSeek(materialOffset);
+            int materialCount = reader.ReadInt32();
+            Dictionary<uint, ulong> materials = new();
+            for (int j = 0; j < materialCount; j++)
+            {
+                reader.BSeek(materialOffset+4+j*12);
+                uint id = reader.ReadUInt32();
+                ulong unkId = reader.ReadUInt64();
+                materials.Add(id, unkId);
             }
 
             for (int j = 0; j < offsets.Count; j++)
@@ -610,8 +625,7 @@ partial class Program
                                 BitConverter.ToUInt16(indexData, k * 2 + 4)+part.VertexOffset04
                             ]);
                         }
-                        int maxInt = localindices.SelectMany(x => x).Max();
-                        int minInt = localindices.SelectMany(x => x).Min();
+                        
                         foreach (var index in localindices)
                         {
                             sw.WriteLine($"f {index[0]+1}/{index[0]+1} {index[1]+1}/{index[1]+1} {index[2]+1}/{index[2]+1}");
