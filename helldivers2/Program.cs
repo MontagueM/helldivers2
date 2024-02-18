@@ -331,6 +331,19 @@ partial class Program
             //     continue;
             // }
             var unkDataHeader = unkDataHeaderModels[i];
+            
+            reader.BSeek(unkDataHeader.DataOffset10+0x4C);
+            long nameOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
+            reader.BSeek(nameOffset + 0x14);
+            uint testVal = reader.ReadUInt32();
+            string name = "";
+            if (nameOffset != unkDataHeader.DataOffset10 && testVal == 3)
+            {
+                reader.BSeek(nameOffset+0x1C);
+                name = reader.ReadNullTerminatedString();
+            }
+
+
             reader.BSeek(unkDataHeader.DataOffset10+0x5C);
             long offset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
             reader.BSeek(offset);
@@ -368,7 +381,8 @@ partial class Program
                     for (int k = 0; k < vertexCount; k++)
                     {
                         var vertex = new Vertex();
-                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride), BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x10) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x10+2) / 65_535.0f);
                         vertices.Add(vertex);
                     }
                 }
@@ -487,7 +501,15 @@ partial class Program
                 }
                 // write to obj
                 Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/models"));
-                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{i}_{j}_{stride}_{indexCount}.obj")))
+                string fileName = $"{i}_{j}_{stride}_{indexCount}";
+                if (name != "")
+                {
+                    fileName += $"_{name.Replace('/', '-')}";
+                    // make filename safe
+                    var invalidChars = Path.GetInvalidFileNameChars();
+                    fileName = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray());
+                }
+                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}.obj")))
                 {
                     int t = 0;
                     foreach (var vertex in vertices)
