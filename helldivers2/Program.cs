@@ -304,11 +304,11 @@ partial class Program
     [StructLayout(LayoutKind.Sequential, Size = 0x18)]
     struct UnkPartDefinition
     {
-        public uint Index00;
-        public uint VertexOffset04;
-        public uint VertexCount08;
-        public uint UnkOffset0C;
-        public uint UnkCount10;
+        public int Index00;
+        public int VertexOffset04;
+        public int VertexCount08;
+        public int IndexOffset0C;
+        public int IndexCount10;
         public uint Zeros14;
     }
 
@@ -393,9 +393,10 @@ partial class Program
             long unkOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
             reader.BSeek(unkOffset);
             int unkCount = reader.ReadInt32();
-            Dictionary<uint, UnkPartDefinition> parts = new();
+            Dictionary<int, List<UnkPartDefinition>> parts = new();
             for (int j = 0; j < unkCount; j++)
             {
+                Dictionary<uint, UnkPartDefinition> subparts = new();
                 reader.BSeek(unkOffset + 4 + j * 4);
                 int reloffset = reader.ReadInt32();
                 reader.BSeek(unkOffset + 4 + unkCount * 4 + j * 4);
@@ -415,7 +416,15 @@ partial class Program
                 for (int k = 0; k < unkCount2; k++)
                 {
                     UnkPartDefinition partDefinition = reader.ReadType<UnkPartDefinition>();
-                    parts.Add(partDefinition.Index00, partDefinition);
+                    subparts.Add(ids[partDefinition.Index00], partDefinition);
+                }
+                if (parts.ContainsKey(unkPartHeader.MeshIndex3C))
+                {
+                    parts[unkPartHeader.MeshIndex3C].AddRange(subparts.Values);
+                }
+                else
+                {
+                    parts.Add(unkPartHeader.MeshIndex3C, subparts.Values.ToList());
                 }
             }
 
@@ -562,6 +571,7 @@ partial class Program
                         BitConverter.ToUInt16(indexData, k*6+4)
                     });
                 }
+
                 // write to obj
                 Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/models"));
                 string fileName = $"{i}_{j}_{stride}_{indexCount}";
@@ -572,22 +582,41 @@ partial class Program
                     var invalidChars = Path.GetInvalidFileNameChars();
                     fileName = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray());
                 }
+                List<UnkPartDefinition> partDefinitions = parts[j];
+                
                 using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}.obj")))
                 {
                     int t = 0;
+                    // for (int k = part.VertexOffset04; k < part.VertexOffset04+part.VertexCount08; k++)
+                    // {
+                    //     sw.WriteLine($"v {vertices[k].Position.X} {vertices[k].Position.Y} {vertices[k].Position.Z}");
+                    //     sw.WriteLine($"vt {vertices[k].Texcoord.X} {vertices[k].Texcoord.Y}");
+                    // }
                     foreach (var vertex in vertices)
                     {
-                        sw.WriteLine($"i {t}");
                         sw.WriteLine($"v {vertex.Position.X} {vertex.Position.Y} {vertex.Position.Z}");
                         sw.WriteLine($"vt {vertex.Texcoord.X} {vertex.Texcoord.Y}");
-                        t++;
                     }
-                    foreach (var vertex in vertices)
+                    foreach (var part in partDefinitions)
                     {
-                    }
-                    foreach (var index in indices)
-                    {
-                        sw.WriteLine($"f {index[0]+1}/{index[0]+1} {index[1]+1}/{index[1]+1} {index[2]+1}/{index[2]+1}");
+                        sw.WriteLine($"o {fileName}_{part.Index00}_{t}");
+
+                        List<List<int>> localindices = new();
+                        for (int k = part.IndexOffset0C; k < part.IndexOffset0C+part.IndexCount10; k+=3)
+                        {
+                            localindices.Add([
+                                BitConverter.ToUInt16(indexData, k * 2)+part.VertexOffset04,
+                                BitConverter.ToUInt16(indexData, k * 2 + 2)+part.VertexOffset04,
+                                BitConverter.ToUInt16(indexData, k * 2 + 4)+part.VertexOffset04
+                            ]);
+                        }
+                        int maxInt = localindices.SelectMany(x => x).Max();
+                        int minInt = localindices.SelectMany(x => x).Min();
+                        foreach (var index in localindices)
+                        {
+                            sw.WriteLine($"f {index[0]+1}/{index[0]+1} {index[1]+1}/{index[1]+1} {index[2]+1}/{index[2]+1}");
+                        }
+                        t += 1;
                     }
                 }
 
