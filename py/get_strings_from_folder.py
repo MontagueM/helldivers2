@@ -2,6 +2,7 @@
 import os
 folder = r"D:\SteamLibrary\steamapps\common\Helldivers 2\data"
 
+strings = {}
 for file in os.listdir(folder):
     if '.' in file:
         continue
@@ -18,4 +19,13 @@ for file in os.listdir(folder):
         else:
             if len(cache) > 9 and cache.startswith('content/'):
                 print(cache)
+                if cache not in strings:
+                    strings[cache] = []
+                strings[cache].append(file)
             cache = ''
+
+with open('strings.txt', 'w') as f:
+    for k, v in strings.items():
+        f.write(f"--{k}--\n")
+        for s in v:
+            f.write(f"{s}\n")

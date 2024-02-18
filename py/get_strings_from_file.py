@@ -1,6 +1,6 @@
 # find all null-terminated strings
 
-file = r"D:\SteamLibrary\steamapps\common\Helldivers 2\data\009da023c64d178d"
+file = r"D:\SteamLibrary\steamapps\common\Helldivers 2\data\09985dc611a3a8b6"
 
 with open(file, 'rb') as f:
     data = f.read()

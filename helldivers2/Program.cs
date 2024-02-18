@@ -16,19 +16,54 @@ partial class Program
         // string file = "05b7f582b44bac01"; // 4 textures
         // string file = "01710ddcfcdc9e8f"; // 1 texture
         // string file = "fd26c7b93257d7a6";  // no stream file
-        // string file = "009da023c64d178d"; // huge file with textures, models, etc.
-        // file = "c6d14774e5c77651";
+        string file = "009da023c64d178d"; // huge file with textures, models, etc.
+        file = "09985dc611a3a8b6";
         // iterate over all files in data dir with no extension
-        foreach (var file in Directory.EnumerateFiles(dataDir, "*", SearchOption.TopDirectoryOnly))
-        {
-            if (file.Contains("."))
-            {
-                continue;
-            }
-
-            ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
-        }
+        // foreach (var file in Directory.EnumerateFiles(dataDir, "*", SearchOption.TopDirectoryOnly))
+        // {
+        //     if (file.Contains("."))
+        //     {
+        //         continue;
+        //     }
+        //
+        //     ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
+        // }
+        ParseDataFiles(dataDir, saveDir, file);
+        // SearchBytesInAllFiles(dataDir, "606C89161531C5E9");
         // ParseTypeLib();
+    }
+    
+    private static byte[] StringToByteArray(string hex)
+    {
+        // Convert the string to a byte array.
+        byte[] bytes = new byte[hex.Length / 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+        }
+
+        return bytes;
+    }
+    
+    private static void SearchBytesInAllFiles(string dataDir, string bytesStr)
+    {
+        byte[] bytes = StringToByteArray(bytesStr);
+        Parallel.ForEach(Directory.EnumerateFiles(dataDir, "*", SearchOption.AllDirectories), file =>
+        {
+            ReadOnlySpan<byte> fileBytes = File.ReadAllBytes(file);
+            // search padded to every 8 bytes
+            for (int i = 0; i < fileBytes.Length; i += 8)
+            {
+                if (i + 8 >= fileBytes.Length)
+                {
+                    break;
+                }
+                if (fileBytes.Slice(i, 8).SequenceEqual(bytes))
+                {
+                    Console.WriteLine($"{file} at 0x{i:X}/{i} {bytesStr} found");
+                }
+            }
+        });
     }
     
     [StructLayout(LayoutKind.Sequential, Size = 0x24)]
@@ -289,10 +324,9 @@ partial class Program
         {
             unkDataHeaderModels = new List<UnkDataHeader>();
         }
-        unkDataHeaderModels.Clear();
         for (int i = 0; i < unkDataHeaderModels.Count; i++)
         {
-            // if (i != 77)
+            // if (i != 277)
             // {
             //     continue;
             // }
@@ -344,6 +378,7 @@ partial class Program
                     {
                         var vertex = new Vertex();
                         vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
                         vertices.Add(vertex);
                     }
                 }
@@ -397,6 +432,39 @@ partial class Program
                         vertices.Add(vertex);
                     }
                 }
+                else if (stride == 44)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
+                        // i think its pos -> tex -> norm, tex and norm as uint16
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 52)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
+                        // i think its pos -> tex -> norm, tex and norm as uint16
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 56)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
+                        // i think its pos -> tex -> norm, tex and norm as uint16
+                        vertices.Add(vertex);
+                    }
+                }
                 else
                 {
                     throw new NotImplementedException();
@@ -407,7 +475,7 @@ partial class Program
                 var indexCount = indexData.Length/6;
                 List<List<int>> indices = new();
                 // int indexStart = 329;
-                // indexCount = 5000;
+                // indexCount = 30000;
                 for (int k = 0; k < indexCount; k++)
                 {
                     indices.Add(new List<int>
@@ -438,7 +506,7 @@ partial class Program
                     }
                 }
 
-                break;
+                // break;
             }
         }
         
@@ -447,16 +515,16 @@ partial class Program
         {
             unkDataHeaderTextures = new List<UnkDataHeader>();
         }
-        // Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/textures"));
-        Directory.CreateDirectory(Path.Combine(saveDir, $"textures"));
+        Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/textures"));
+        // Directory.CreateDirectory(Path.Combine(saveDir, $"textures"));
         for (int i = 0; i < unkDataHeaderTextures.Count; i++)
         {
-            string filename = Path.Combine(saveDir, $"textures/{file}_{i}.dds");
+            var unkDataHeader = unkDataHeaderTextures[i];
+            string filename = Path.Combine(saveDir, $"{file}/textures/{i}_{Endian.U64ToString(unkDataHeader.UnkId00)}.dds");
             if (File.Exists(filename))
             {
                 continue;
             }
-            var unkDataHeader = unkDataHeaderTextures[i];
             reader.BSeek(unkDataHeader.DataOffset10 + 0xC0); // unknown 0xC0
             var ddsHeaderBytes = reader.ReadBytes(0x94);  // assumes DX10 extra
             if (unkDataHeader.StreamDataSize3C > 0)
@@ -469,7 +537,6 @@ partial class Program
                 streamReader.BSeek(unkDataHeader.StreamDataOffset18);
                 var streamData = streamReader.ReadBytes((int)unkDataHeader.StreamDataSize3C);
                 File.WriteAllBytes(filename, ddsHeaderBytes.Concat(streamData).ToArray());
-                // File.WriteAllBytes(Path.Combine(saveDir, $"{file}/textures/{i}_{Endian.U64ToString(unkDataHeader.UnkId00)}.dds"), ddsHeaderBytes.Concat(streamData).ToArray());
             }
             else
             {
