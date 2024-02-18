@@ -1,4 +1,6 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using helldivers2;
 
 
@@ -9,7 +11,23 @@ partial class Program
 {
     public static void Main(string[] args)
     {
-        ParseDataFiles();
+        string dataDir = @"D:\SteamLibrary\steamapps\common\Helldivers 2\data\";
+        string saveDir = @"C:\Users\monta\OneDrive\helldivers2\saved\";
+        // string file = "05b7f582b44bac01"; // 4 textures
+        // string file = "01710ddcfcdc9e8f"; // 1 texture
+        // string file = "fd26c7b93257d7a6";  // no stream file
+        // string file = "009da023c64d178d"; // huge file with textures, models, etc.
+        // file = "c6d14774e5c77651";
+        // iterate over all files in data dir with no extension
+        foreach (var file in Directory.EnumerateFiles(dataDir, "*", SearchOption.TopDirectoryOnly))
+        {
+            if (file.Contains("."))
+            {
+                continue;
+            }
+
+            ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
+        }
         // ParseTypeLib();
     }
     
@@ -215,6 +233,13 @@ partial class Program
         public byte[] DDSData;
     }
 
+    struct Vertex
+    {
+        public Vector3 Position;
+        public Vector2 Texcoord;
+        public Vector3 Normal;
+    }
+
     enum ResourceType : ulong
     {
         Texture = 0xCD4238C6_A0C69E32,
@@ -222,20 +247,14 @@ partial class Program
         Havok = 0x5F7203C8_F280DAb8
     }
 
-    private static void ParseDataFiles()
+    private static void ParseDataFiles(string dataDir, string saveDir, string file)
     {
-        string dataDir = @"D:\SteamLibrary\steamapps\common\Helldivers 2\data\";
-        string saveDir = @"C:\Users\monta\OneDrive\helldivers2\saved\";
-        // string file = "05b7f582b44bac01"; // 4 textures
-        // string file = "01710ddcfcdc9e8f"; // 1 texture
-        // string file = "fd26c7b93257d7a6";  // no stream file
-        string file = "009da023c64d178d"; // huge file with textures, models, etc.
         var topfile = new HDFile(Path.Combine(dataDir, file));
-        var gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
-        var streamFile = new HDFile(Path.Combine(dataDir, file + ".stream"));
+        HDFile? gpuFile = null;
+        HDReader? gpuReader = null;
+        HDFile? streamFile = null;
         var reader = topfile.GetReader();
-        var gpuReader = gpuFile.GetReader();
-        var streamReader = streamFile.GetReader();
+        HDReader? streamReader = null;
         var header = reader.ReadType<Header>();
         List<Unk1> unk1s = new();
         for (int i = 0; i < header.UnkCount1; i++)
@@ -259,34 +278,212 @@ partial class Program
             unkDataHeaders.Add(i, unkDataHeaderss);
         }
         
-        List<Texture> textures = new();
-        List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaders.Count == 0)
+        {
+            return;
+        }
+        
+        
+        List<UnkDataHeader> unkDataHeaderModels = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Model).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderModels == null)
+        {
+            unkDataHeaderModels = new List<UnkDataHeader>();
+        }
+        unkDataHeaderModels.Clear();
+        for (int i = 0; i < unkDataHeaderModels.Count; i++)
+        {
+            // if (i != 77)
+            // {
+            //     continue;
+            // }
+            var unkDataHeader = unkDataHeaderModels[i];
+            reader.BSeek(unkDataHeader.DataOffset10+0x5C);
+            long offset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
+            reader.BSeek(offset);
+            int unkCount = reader.ReadInt32();
+            // these are lods
+            List<int> offsets = new();
+            for (int j = 0; j < unkCount; j++)
+            {
+                offsets.Add(reader.ReadInt32());
+                // their ids are also here i think
+            }
+            
+            for (int j = 0; j < offsets.Count; j++)
+            {
+                int off = offsets[j];
+                reader.BSeek(offset+off+0x160);
+                uint vertexCount = reader.ReadUInt32();
+                int stride = reader.ReadInt32();
+                reader.BSeek(offset+off+0x1A0);
+                uint vertexStartOffset = reader.ReadUInt32();
+                uint vertexDataSize = reader.ReadUInt32();
+                uint indexStartOffset = reader.ReadUInt32();
+                uint indexDataSize = reader.ReadUInt32();
+                if (gpuReader == null)
+                {
+                    gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
+                    gpuReader = gpuFile.GetReader();
+                }
+                gpuReader.BSeek(unkDataHeader.GPUDataOffset20+vertexStartOffset);
+                var vertexData = gpuReader.ReadBytes((int)(vertexCount*stride));
+                List<Vertex> vertices = new();
+                // vertexCount = 5_000;
+                if (stride == 36)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 24)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 28)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride), BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x10) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x10+2) / 65_535.0f);
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 16)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 20)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride), BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x10) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x10+2) / 65_535.0f);
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 32)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
+                        vertices.Add(vertex);
+                    }
+                }
+                else if (stride == 40)
+                {
+                    for (int k = 0; k < vertexCount; k++)
+                    {
+                        var vertex = new Vertex();
+                        vertex.Position = new Vector3(BitConverter.ToSingle(vertexData, k*stride+4), BitConverter.ToSingle(vertexData, k*stride+4+4), BitConverter.ToSingle(vertexData, k*stride+4+8));
+                        vertex.Texcoord = new Vector2(BitConverter.ToUInt16(vertexData, k*stride+0x14) / 65_535.0f, BitConverter.ToUInt16(vertexData, k*stride+0x14+2) / 65_535.0f);
+                        // i think its pos -> tex -> norm, tex and norm as uint16
+                        vertices.Add(vertex);
+                    }
+                }
+                else
+                {
+                    throw new NotImplementedException();
+                }
+
+                gpuReader.BSeek(unkDataHeader.GPUDataOffset20+indexStartOffset);
+                var indexData = gpuReader.ReadBytes((int)indexDataSize);
+                var indexCount = indexData.Length/6;
+                List<List<int>> indices = new();
+                // int indexStart = 329;
+                // indexCount = 5000;
+                for (int k = 0; k < indexCount; k++)
+                {
+                    indices.Add(new List<int>
+                    {
+                        BitConverter.ToUInt16(indexData, k*6),
+                        BitConverter.ToUInt16(indexData, k*6+2),
+                        BitConverter.ToUInt16(indexData, k*6+4)
+                    });
+                }
+                // write to obj
+                Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/models"));
+                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{i}_{j}_{stride}_{indexCount}.obj")))
+                {
+                    int t = 0;
+                    foreach (var vertex in vertices)
+                    {
+                        sw.WriteLine($"i {t}");
+                        sw.WriteLine($"v {vertex.Position.X} {vertex.Position.Y} {vertex.Position.Z}");
+                        sw.WriteLine($"vt {vertex.Texcoord.X} {vertex.Texcoord.Y}");
+                        t++;
+                    }
+                    foreach (var vertex in vertices)
+                    {
+                    }
+                    foreach (var index in indices)
+                    {
+                        sw.WriteLine($"f {index[0]+1}/{index[0]+1} {index[1]+1}/{index[1]+1} {index[2]+1}/{index[2]+1}");
+                    }
+                }
+
+                break;
+            }
+        }
+        
+        List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderTextures == null)
+        {
+            unkDataHeaderTextures = new List<UnkDataHeader>();
+        }
+        // Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/textures"));
+        Directory.CreateDirectory(Path.Combine(saveDir, $"textures"));
         for (int i = 0; i < unkDataHeaderTextures.Count; i++)
         {
+            string filename = Path.Combine(saveDir, $"textures/{file}_{i}.dds");
+            if (File.Exists(filename))
+            {
+                continue;
+            }
             var unkDataHeader = unkDataHeaderTextures[i];
             reader.BSeek(unkDataHeader.DataOffset10 + 0xC0); // unknown 0xC0
             var ddsHeaderBytes = reader.ReadBytes(0x94);  // assumes DX10 extra
             if (unkDataHeader.StreamDataSize3C > 0)
             {
+                if (streamFile == null)
+                {
+                    streamFile = new HDFile(Path.Combine(dataDir, file + ".stream"));
+                    streamReader = streamFile.GetReader();
+                }
                 streamReader.BSeek(unkDataHeader.StreamDataOffset18);
                 var streamData = streamReader.ReadBytes((int)unkDataHeader.StreamDataSize3C);
-                File.WriteAllBytes(Path.Combine(saveDir, $"{file}_{i}.dds"), ddsHeaderBytes.Concat(streamData).ToArray());
+                File.WriteAllBytes(filename, ddsHeaderBytes.Concat(streamData).ToArray());
+                // File.WriteAllBytes(Path.Combine(saveDir, $"{file}/textures/{i}_{Endian.U64ToString(unkDataHeader.UnkId00)}.dds"), ddsHeaderBytes.Concat(streamData).ToArray());
             }
             else
             {
+                if (gpuReader == null)
+                {
+                    gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
+                    gpuReader = gpuFile.GetReader();
+                }
                 gpuReader.BSeek(unkDataHeader.GPUDataOffset20);
                 var gpuData = gpuReader.ReadBytes((int)unkDataHeader.GPUDataSize40);
-                File.WriteAllBytes(Path.Combine(saveDir, $"{file}_{i}.dds"), ddsHeaderBytes.Concat(gpuData).ToArray());
+                File.WriteAllBytes(filename, ddsHeaderBytes.Concat(gpuData).ToArray());
             }
         }
 
-        List<UnkDataHeader> unkDataHeaderModels = unkDataHeaders.Where(kvp => kvp.Value[0].UnkId08 == (ulong)ResourceType.Model).Select(kvp => kvp.Value).FirstOrDefault();
-        foreach (var unkDataHeader in unkDataHeaderModels)
-        {
-            reader.BSeek(unkDataHeader.DataOffset10);
-            var data = reader.ReadBytes((int)unkDataHeader.DataSize38);
-            // File.WriteAllBytes(Path.Combine(saveDir, $"{file}_model_{unkDataHeader.UnkIndex4C}.bin"), data);
-        }
 
         var a = 0;
     }
