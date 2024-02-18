@@ -358,6 +358,18 @@ partial class Program
             return;
         }
         
+        List<UnkDataHeader> unkDataHeaderHavoks = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Havok).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderHavoks == null)
+        {
+            unkDataHeaderHavoks = new List<UnkDataHeader>();
+        }
+        Dictionary<ulong, UnkDataHeader> havokDataHeaders = new();
+        for (int i = 0; i < unkDataHeaderHavoks.Count; i++)
+        {
+            var unkDataHeader = unkDataHeaderHavoks[i];
+            havokDataHeaders.Add(unkDataHeader.UnkId00, unkDataHeader);
+        }
+        
         List<UnkDataHeader> unkDataHeaderMaterials = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Material).Select(kvp => kvp.Value).FirstOrDefault();
         if (unkDataHeaderMaterials == null)
         {
@@ -395,6 +407,25 @@ partial class Program
             {
                 reader.BSeek(nameOffset+0x1C);
                 name = reader.ReadNullTerminatedString();
+                Console.WriteLine($"{i}: Found name {name}");
+            }
+            
+            // get alt name from havok
+            if (havokDataHeaders.ContainsKey(unkDataHeader.UnkId00))
+            {
+                var havokDataHeader = havokDataHeaders[unkDataHeader.UnkId00];
+                reader.BSeek(havokDataHeader.DataOffset10);
+                ReadOnlySpan<byte> data = reader.ReadBytes((int)havokDataHeader.DataSize38);
+                // find double occurence of the id in hex
+                byte[] search = BitConverter.GetBytes(unkDataHeader.UnkId00);
+                // search = search.Concat(search).ToArray();
+                int index = data.IndexOf(search);
+                if (index != -1)
+                {
+                    reader.BSeek(havokDataHeader.DataOffset10+index+0x18);
+                    name = reader.ReadNullTerminatedString();
+                    Console.WriteLine($"{i}: Found havok name {name}");
+                }
             }
 
 
