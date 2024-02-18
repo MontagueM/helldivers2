@@ -375,14 +375,27 @@ partial class Program
         {
             unkDataHeaderMaterials = new List<UnkDataHeader>();
         }
-        Dictionary<long, Tuple<long, long>> materialTextures = new();
+        Dictionary<ulong, Tuple<long, long>> materialTextures = new();
         for (int i = 0; i < unkDataHeaderMaterials.Count; i++)
         {
             var unkDataHeader = unkDataHeaderMaterials[i];
             reader.BSeek(unkDataHeader.DataOffset10+0x90);
             long textureId1 = reader.ReadInt64();
             long textureId2 = reader.ReadInt64();
-            materialTextures.Add(unkDataHeader.DataOffset10, new Tuple<long, long>(textureId1, textureId2));
+            materialTextures.Add(unkDataHeader.UnkId00, new Tuple<long, long>(textureId1, textureId2));
+        }
+        
+                    
+        List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderTextures == null)
+        {
+            unkDataHeaderTextures = new List<UnkDataHeader>();
+        }
+        Dictionary<ulong, UnkDataHeader> textureDataHeaders = new();
+        for (int j = 0; j < unkDataHeaderTextures.Count; j++)
+        {
+            var unkDataHeaderTex = unkDataHeaderTextures[j];
+            textureDataHeaders.Add(unkDataHeaderTex.UnkId00, unkDataHeaderTex);
         }
         
         List<UnkDataHeader> unkDataHeaderModels = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Model).Select(kvp => kvp.Value).FirstOrDefault();
@@ -449,8 +462,9 @@ partial class Program
             Dictionary<uint, long> materials = new();
             for (int j = 0; j < materialCount; j++)
             {
-                reader.BSeek(materialOffset+4+j*12);
+                reader.BSeek(materialOffset+4+j*4);
                 uint id = reader.ReadUInt32();
+                reader.BSeek(materialOffset+4+j*8+materialCount*4);
                 long unkId = reader.ReadInt64();
                 materials.Add(id, unkId);
             }
@@ -490,11 +504,15 @@ partial class Program
                     parts.Add(unkPartHeader.MeshIndex3C, []);
                 }
                 
-                Part part = new();
-                part.Id = id;
-                part.Definition = subparts.Values.First();
-                part.MaterialId = materials.GetValueOrDefault(id, -1);
-                parts[unkPartHeader.MeshIndex3C].Add(part);
+
+                foreach (var subpart in subparts)
+                {
+                    Part part = new();
+                    part.Id = subpart.Key;
+                    part.Definition = subpart.Value;
+                    part.MaterialId = materials.GetValueOrDefault(part.Id, -1);
+                    parts[unkPartHeader.MeshIndex3C].Add(part);
+                }
             }
             
             for (int j = 0; j < offsets.Count; j++)
@@ -642,7 +660,6 @@ partial class Program
                 }
 
                 // write to obj
-                Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/models"));
                 string fileName = $"{i}_{j}_{stride}_{indexCount}";
                 if (name != "")
                 {
@@ -651,11 +668,12 @@ partial class Program
                     var invalidChars = Path.GetInvalidFileNameChars();
                     fileName = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray());
                 }
+                Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/models/{fileName}"));
+
                 List<Part> partDefinitions = parts[j];
                 
-                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}.obj")))
+                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}/model.obj")))
                 {
-                    int t = 0;
                     // for (int k = part.VertexOffset04; k < part.VertexOffset04+part.VertexCount08; k++)
                     // {
                     //     sw.WriteLine($"v {vertices[k].Position.X} {vertices[k].Position.Y} {vertices[k].Position.Z}");
@@ -668,7 +686,7 @@ partial class Program
                     }
                     foreach (var part in partDefinitions)
                     {
-                        sw.WriteLine($"o {fileName}_{part.Definition.Index00}_{t}");
+                        sw.WriteLine($"o {fileName}_{part.Definition.Index00}_part{part.Id}");
 
                         List<List<int>> localindices = new();
                         for (int k = part.Definition.IndexOffset0C; k < part.Definition.IndexOffset0C+part.Definition.IndexCount10; k+=3)
@@ -684,7 +702,60 @@ partial class Program
                         {
                             sw.WriteLine($"f {index[0]+1}/{index[0]+1} {index[1]+1}/{index[1]+1} {index[2]+1}/{index[2]+1}");
                         }
-                        t += 1;
+                    }
+                }
+                
+                // write materials
+                foreach (var part in partDefinitions)
+                {
+                    if (part.MaterialId == -1)
+                    {
+                        continue;
+                    }
+                    if (!materialTextures.ContainsKey((ulong)part.MaterialId))
+                    {
+                        Console.WriteLine($"Material {part.MaterialId} not found");
+                        continue;
+                    }
+                    var textureIds = materialTextures[(ulong)part.MaterialId];
+                    var texlist = new List<long> { textureIds.Item1, textureIds.Item2 };
+                    foreach (var textureId in texlist)
+                    {
+                        if (!textureDataHeaders.ContainsKey((ulong)textureId))
+                        {
+                            Console.WriteLine($"Texture {textureId} not found");
+                            continue;
+                        }
+                        var unkDataHeaderTex = textureDataHeaders[(ulong)textureId];
+                        string filename = Path.Combine(saveDir, $"{file}/models/{fileName}/part{part.Id}_{Endian.U64ToString(unkDataHeaderTex.UnkId00)}.dds");
+                        if (File.Exists(filename))
+                        {
+                            continue;
+                        }
+                        reader.BSeek(unkDataHeaderTex.DataOffset10 + 0xC0); // unknown 0xC0
+                        var ddsHeaderBytes = reader.ReadBytes(0x94);  // assumes DX10 extra
+                        if (unkDataHeaderTex.StreamDataSize3C > 0)
+                        {
+                            if (streamFile == null)
+                            {
+                                streamFile = new HDFile(Path.Combine(dataDir, file + ".stream"));
+                                streamReader = streamFile.GetReader();
+                            }
+                            streamReader.BSeek(unkDataHeaderTex.StreamDataOffset18);
+                            var streamData = streamReader.ReadBytes((int)unkDataHeaderTex.StreamDataSize3C);
+                            File.WriteAllBytes(filename, ddsHeaderBytes.Concat(streamData).ToArray());
+                        }
+                        else
+                        {
+                            if (gpuReader == null)
+                            {
+                                gpuFile = new HDFile(Path.Combine(dataDir, file + ".gpu_resources"));
+                                gpuReader = gpuFile.GetReader();
+                            }
+                            gpuReader.BSeek(unkDataHeaderTex.GPUDataOffset20);
+                            var gpuData = gpuReader.ReadBytes((int)unkDataHeaderTex.GPUDataSize40);
+                            File.WriteAllBytes(filename, ddsHeaderBytes.Concat(gpuData).ToArray());
+                        }
                     }
                 }
 
@@ -692,11 +763,7 @@ partial class Program
             }
         }
         
-        List<UnkDataHeader> unkDataHeaderTextures = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Texture).Select(kvp => kvp.Value).FirstOrDefault();
-        if (unkDataHeaderTextures == null)
-        {
-            unkDataHeaderTextures = new List<UnkDataHeader>();
-        }
+
         Directory.CreateDirectory(Path.Combine(saveDir, $"{file}/textures"));
         // Directory.CreateDirectory(Path.Combine(saveDir, $"textures"));
         for (int i = 0; i < unkDataHeaderTextures.Count; i++)
