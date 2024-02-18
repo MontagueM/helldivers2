@@ -281,7 +281,38 @@ partial class Program
         Model = 0xE0A48D0B_E9A7453F,
         Havok = 0x5F7203C8_F280DAb8
     }
+    
+        
+    [StructLayout(LayoutKind.Explicit, Size = 0x68)]
+    struct UnkPartHeader
+    {
+        [FieldOffset(0x08)] public float Unk08;
+        [FieldOffset(0x0C)] public float Unk0C;
+        [FieldOffset(0x10)] public float Unk10;
+        [FieldOffset(0x14)] public float Unk14;
+        [FieldOffset(0x18)] public float Unk18;
+        [FieldOffset(0x1C)] public float Unk1C;
+        [FieldOffset(0x20)] public float Unk20;
+        [FieldOffset(0x24)] public int UnkSize24;
+        [FieldOffset(0x28)] public uint Unk28;
+        [FieldOffset(0x2C)] public int UnkIndex2C;
+        [FieldOffset(0x30)] public int UnkIndex30;
+        [FieldOffset(0x38)] public int Unk38; // always -1
+        [FieldOffset(0x3C)] public int MeshIndex3C; // probably
+    }
 
+    [StructLayout(LayoutKind.Sequential, Size = 0x18)]
+    struct UnkPartDefinition
+    {
+        public uint Index00;
+        public uint VertexOffset04;
+        public uint VertexCount08;
+        public uint UnkOffset0C;
+        public uint UnkCount10;
+        public uint Zeros14;
+    }
+
+    
     private static void ParseDataFiles(string dataDir, string saveDir, string file)
     {
         var topfile = new HDFile(Path.Combine(dataDir, file));
@@ -326,10 +357,10 @@ partial class Program
         }
         for (int i = 0; i < unkDataHeaderModels.Count; i++)
         {
-            // if (i != 277)
-            // {
-            //     continue;
-            // }
+            if (i != 109)
+            {
+                continue;
+            }
             var unkDataHeader = unkDataHeaderModels[i];
             
             reader.BSeek(unkDataHeader.DataOffset10+0x4C);
@@ -347,15 +378,47 @@ partial class Program
             reader.BSeek(unkDataHeader.DataOffset10+0x5C);
             long offset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
             reader.BSeek(offset);
-            int unkCount = reader.ReadInt32();
+            int lodCount = reader.ReadInt32();
             // these are lods
             List<int> offsets = new();
-            for (int j = 0; j < unkCount; j++)
+            for (int j = 0; j < lodCount; j++)
             {
                 offsets.Add(reader.ReadInt32());
                 // their ids are also here i think
             }
-            
+
+                        
+            // unk parts
+            reader.BSeek(unkDataHeader.DataOffset10+0x64);
+            long unkOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
+            reader.BSeek(unkOffset);
+            int unkCount = reader.ReadInt32();
+            Dictionary<uint, UnkPartDefinition> parts = new();
+            for (int j = 0; j < unkCount; j++)
+            {
+                reader.BSeek(unkOffset + 4 + j * 4);
+                int reloffset = reader.ReadInt32();
+                reader.BSeek(unkOffset + 4 + unkCount * 4 + j * 4);
+                uint id = reader.ReadUInt32();
+                reader.BSeek(unkOffset + reloffset);
+                UnkPartHeader unkPartHeader = reader.ReadType<UnkPartHeader>();
+                reader.Seek(0x10, SeekOrigin.Current);
+                uint unkCount2 = reader.ReadUInt32();
+                uint unkSize = reader.ReadUInt32();
+                List<uint> ids = new();
+                for (int k = 0; k < unkCount2; k++)
+                {
+                    uint unkId = reader.ReadUInt32();
+                    ids.Add(unkId);
+                }
+
+                for (int k = 0; k < unkCount2; k++)
+                {
+                    UnkPartDefinition partDefinition = reader.ReadType<UnkPartDefinition>();
+                    parts.Add(partDefinition.Index00, partDefinition);
+                }
+            }
+
             for (int j = 0; j < offsets.Count; j++)
             {
                 int off = offsets[j];
