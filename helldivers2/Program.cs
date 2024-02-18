@@ -280,7 +280,8 @@ partial class Program
     {
         Texture = 0xCD4238C6_A0C69E32,
         Model = 0xE0A48D0B_E9A7453F,
-        Havok = 0x5F7203C8_F280DAb8
+        Havok = 0x5F7203C8_F280DAB8,
+        Material = 0xEAC0B497_876ADEDF,
     }
     
         
@@ -303,7 +304,7 @@ partial class Program
     }
 
     [StructLayout(LayoutKind.Sequential, Size = 0x18)]
-    struct UnkPartDefinition
+    struct PartDefinition
     {
         public int Index00;
         public int VertexOffset04;
@@ -311,6 +312,13 @@ partial class Program
         public int IndexOffset0C;
         public int IndexCount10;
         public uint Zeros14;
+    }
+
+    struct Part
+    {
+        public uint Id;
+        public PartDefinition Definition;
+        public long MaterialId;
     }
 
     
@@ -350,6 +358,20 @@ partial class Program
             return;
         }
         
+        List<UnkDataHeader> unkDataHeaderMaterials = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Material).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderMaterials == null)
+        {
+            unkDataHeaderMaterials = new List<UnkDataHeader>();
+        }
+        Dictionary<long, Tuple<long, long>> materialTextures = new();
+        for (int i = 0; i < unkDataHeaderMaterials.Count; i++)
+        {
+            var unkDataHeader = unkDataHeaderMaterials[i];
+            reader.BSeek(unkDataHeader.DataOffset10+0x90);
+            long textureId1 = reader.ReadInt64();
+            long textureId2 = reader.ReadInt64();
+            materialTextures.Add(unkDataHeader.DataOffset10, new Tuple<long, long>(textureId1, textureId2));
+        }
         
         List<UnkDataHeader> unkDataHeaderModels = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Model).Select(kvp => kvp.Value).FirstOrDefault();
         if (unkDataHeaderModels == null)
@@ -388,16 +410,29 @@ partial class Program
                 // their ids are also here i think
             }
 
+            // materials
+            reader.BSeek(unkDataHeader.DataOffset10+0x70);
+            long materialOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
+            reader.BSeek(materialOffset);
+            int materialCount = reader.ReadInt32();
+            Dictionary<uint, long> materials = new();
+            for (int j = 0; j < materialCount; j++)
+            {
+                reader.BSeek(materialOffset+4+j*12);
+                uint id = reader.ReadUInt32();
+                long unkId = reader.ReadInt64();
+                materials.Add(id, unkId);
+            }
                         
             // parts
             reader.BSeek(unkDataHeader.DataOffset10+0x64);
             long unkOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
             reader.BSeek(unkOffset);
             int unkCount = reader.ReadInt32();
-            Dictionary<int, List<UnkPartDefinition>> parts = new();
+            Dictionary<int, List<Part>> parts = new();
             for (int j = 0; j < unkCount; j++)
             {
-                Dictionary<uint, UnkPartDefinition> subparts = new();
+                Dictionary<uint, PartDefinition> subparts = new();
                 reader.BSeek(unkOffset + 4 + j * 4);
                 int reloffset = reader.ReadInt32();
                 reader.BSeek(unkOffset + 4 + unkCount * 4 + j * 4);
@@ -416,33 +451,21 @@ partial class Program
 
                 for (int k = 0; k < unkCount2; k++)
                 {
-                    UnkPartDefinition partDefinition = reader.ReadType<UnkPartDefinition>();
+                    PartDefinition partDefinition = reader.ReadType<PartDefinition>();
                     subparts.Add(ids[partDefinition.Index00], partDefinition);
                 }
-                if (parts.ContainsKey(unkPartHeader.MeshIndex3C))
+                if (!parts.ContainsKey(unkPartHeader.MeshIndex3C))
                 {
-                    parts[unkPartHeader.MeshIndex3C].AddRange(subparts.Values);
+                    parts.Add(unkPartHeader.MeshIndex3C, []);
                 }
-                else
-                {
-                    parts.Add(unkPartHeader.MeshIndex3C, subparts.Values.ToList());
-                }
+                
+                Part part = new();
+                part.Id = id;
+                part.Definition = subparts.Values.First();
+                part.MaterialId = materials.GetValueOrDefault(id, -1);
+                parts[unkPartHeader.MeshIndex3C].Add(part);
             }
             
-            // materials
-            reader.BSeek(unkDataHeader.DataOffset10+0x70);
-            long materialOffset = unkDataHeader.DataOffset10 + reader.ReadUInt32();
-            reader.BSeek(materialOffset);
-            int materialCount = reader.ReadInt32();
-            Dictionary<uint, ulong> materials = new();
-            for (int j = 0; j < materialCount; j++)
-            {
-                reader.BSeek(materialOffset+4+j*12);
-                uint id = reader.ReadUInt32();
-                ulong unkId = reader.ReadUInt64();
-                materials.Add(id, unkId);
-            }
-
             for (int j = 0; j < offsets.Count; j++)
             {
                 int off = offsets[j];
@@ -597,7 +620,7 @@ partial class Program
                     var invalidChars = Path.GetInvalidFileNameChars();
                     fileName = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray());
                 }
-                List<UnkPartDefinition> partDefinitions = parts[j];
+                List<Part> partDefinitions = parts[j];
                 
                 using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}.obj")))
                 {
@@ -614,15 +637,15 @@ partial class Program
                     }
                     foreach (var part in partDefinitions)
                     {
-                        sw.WriteLine($"o {fileName}_{part.Index00}_{t}");
+                        sw.WriteLine($"o {fileName}_{part.Definition.Index00}_{t}");
 
                         List<List<int>> localindices = new();
-                        for (int k = part.IndexOffset0C; k < part.IndexOffset0C+part.IndexCount10; k+=3)
+                        for (int k = part.Definition.IndexOffset0C; k < part.Definition.IndexOffset0C+part.Definition.IndexCount10; k+=3)
                         {
                             localindices.Add([
-                                BitConverter.ToUInt16(indexData, k * 2)+part.VertexOffset04,
-                                BitConverter.ToUInt16(indexData, k * 2 + 2)+part.VertexOffset04,
-                                BitConverter.ToUInt16(indexData, k * 2 + 4)+part.VertexOffset04
+                                BitConverter.ToUInt16(indexData, k * 2)+part.Definition.VertexOffset04,
+                                BitConverter.ToUInt16(indexData, k * 2 + 2)+part.Definition.VertexOffset04,
+                                BitConverter.ToUInt16(indexData, k * 2 + 4)+part.Definition.VertexOffset04
                             ]);
                         }
                         
