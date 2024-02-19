@@ -369,13 +369,17 @@ partial class Program
         {
             unkDataHeaderStrings = new List<UnkDataHeader>();
         }
-        Dictionary<uint, List<string>> strings = new();
+        Dictionary<uint, string> strings = new();
         for (int i = 0; i < unkDataHeaderStrings.Count; i++)
         {
             var unkDataHeader = unkDataHeaderStrings[i];
             reader.BSeek(unkDataHeader.DataOffset10+8);
             int count = reader.ReadInt32();
-            int unkid = reader.ReadInt32();
+            int languageId = reader.ReadInt32();
+            if (languageId != 1866798539)
+            {
+                continue;
+            }
             List<uint> ids = new();
             for (int j = 0; j < count; j++)
             {
@@ -387,13 +391,15 @@ partial class Program
                 reader.BSeek(unkDataHeader.DataOffset10+0x10+count*4+j*4);
                 uint offset = reader.ReadUInt32();
                 reader.BSeek(unkDataHeader.DataOffset10+offset);
-                if (!strings.ContainsKey(ids[j]))
-                {
-                    strings.Add(ids[j], new List<string>());
-                }
-                strings[ids[j]].Add(reader.ReadNullTerminatedString());
+                // if (!strings.ContainsKey(ids[j]))
+                // {
+                //     strings.Add(ids[j], new List<string>());
+                // }
+                // strings[ids[j]].Add(reader.ReadNullTerminatedString());
+                strings.Add(ids[j], reader.ReadNullTerminatedString());
             }
         }
+        File.WriteAllLines(Path.Combine(saveDir, $"{file}/strings.txt"), strings.Select(kvp => $"{Endian.U32ToString(kvp.Key)} {kvp.Value}"));
         
         List<UnkDataHeader> unkDataHeaderHavoks = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Havok).Select(kvp => kvp.Value).FirstOrDefault();
         if (unkDataHeaderHavoks == null)
@@ -840,7 +846,7 @@ partial class Program
         }
         
         List<UnkDataHeader> mapHeaders = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Map).Select(kvp => kvp.Value).FirstOrDefault();
-        if (mapHeaders.Count == 0)
+        if (mapHeaders == null)
         {
             return;
         }
