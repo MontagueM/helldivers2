@@ -1,7 +1,7 @@
 import xxhash
 import os
 
-source_file = r"C:\Users\monta\OneDrive\helldivers2\saved\textures\009da023c64d178d_27.dds"
+source_file = r"C:\Users\monta\OneDrive\helldivers2\saved\textures\083b528d1fd9174a_14.dds"
 x = xxhash.xxh32()
 with open(source_file, 'rb') as f:
     x.update(f.read())

@@ -17,7 +17,7 @@ partial class Program
         // string file = "01710ddcfcdc9e8f"; // 1 texture
         // string file = "fd26c7b93257d7a6";  // no stream file
         string file = "009da023c64d178d"; // huge file with textures, models, etc.
-        file = "09985dc611a3a8b6";
+        file = "9ba626afa44a3aa3";
         // iterate over all files in data dir with no extension
         // foreach (var file in Directory.EnumerateFiles(dataDir, "*", SearchOption.TopDirectoryOnly))
         // {
@@ -29,7 +29,7 @@ partial class Program
         //     ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
         // }
         ParseDataFiles(dataDir, saveDir, file);
-        // SearchBytesInAllFiles(dataDir, "4D762B7CF63061C8");
+        // SearchBytesInAllFiles(dataDir, "41 20 6D 61 63 68 69 6E ");
         // ParseTypeLib();
     }
     
@@ -51,9 +51,13 @@ partial class Program
         byte[] bytes = StringToByteArray(bytesStr);
         Parallel.ForEach(Directory.EnumerateFiles(dataDir, "*", SearchOption.AllDirectories), file =>
         {
+            if (file.Contains("."))
+            {
+                return;
+            }
             ReadOnlySpan<byte> fileBytes = File.ReadAllBytes(file);
             // search padded to every 8 bytes
-            for (int i = 0; i < fileBytes.Length; i += 8)
+            for (int i = 0; i < fileBytes.Length; i += 1)
             {
                 if (i + 8 >= fileBytes.Length)
                 {
@@ -282,7 +286,8 @@ partial class Program
         Model = 0xE0A48D0B_E9A7453F,
         Havok = 0x5F7203C8_F280DAB8,
         Material = 0xEAC0B497_876ADEDF,
-        Map = 0x2A690FD3_48FE9AC5
+        Map = 0x2A690FD3_48FE9AC5,
+        Strings = 0x0D972BAB_10B40FD3   
     }
     
         
@@ -357,6 +362,37 @@ partial class Program
         if (unkDataHeaders.Count == 0)
         {
             return;
+        }
+        
+        List<UnkDataHeader> unkDataHeaderStrings = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Strings).Select(kvp => kvp.Value).FirstOrDefault();
+        if (unkDataHeaderStrings == null)
+        {
+            unkDataHeaderStrings = new List<UnkDataHeader>();
+        }
+        Dictionary<uint, List<string>> strings = new();
+        for (int i = 0; i < unkDataHeaderStrings.Count; i++)
+        {
+            var unkDataHeader = unkDataHeaderStrings[i];
+            reader.BSeek(unkDataHeader.DataOffset10+8);
+            int count = reader.ReadInt32();
+            int unkid = reader.ReadInt32();
+            List<uint> ids = new();
+            for (int j = 0; j < count; j++)
+            {
+                uint id = reader.ReadUInt32();
+                ids.Add(id);
+            }
+            for (int j = 0; j < count; j++)
+            {
+                reader.BSeek(unkDataHeader.DataOffset10+0x10+count*4+j*4);
+                uint offset = reader.ReadUInt32();
+                reader.BSeek(unkDataHeader.DataOffset10+offset);
+                if (!strings.ContainsKey(ids[j]))
+                {
+                    strings.Add(ids[j], new List<string>());
+                }
+                strings[ids[j]].Add(reader.ReadNullTerminatedString());
+            }
         }
         
         List<UnkDataHeader> unkDataHeaderHavoks = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Havok).Select(kvp => kvp.Value).FirstOrDefault();
