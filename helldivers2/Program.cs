@@ -29,7 +29,7 @@ partial class Program
         //     ParseDataFiles(dataDir, saveDir, Path.GetFileNameWithoutExtension(file));
         // }
         ParseDataFiles(dataDir, saveDir, file);
-        // SearchBytesInAllFiles(dataDir, "F3 DC 57 1D 3B A6 8B 84");
+        // SearchBytesInAllFiles(dataDir, "4D762B7CF63061C8");
         // ParseTypeLib();
     }
     
@@ -282,6 +282,7 @@ partial class Program
         Model = 0xE0A48D0B_E9A7453F,
         Havok = 0x5F7203C8_F280DAB8,
         Material = 0xEAC0B497_876ADEDF,
+        Map = 0x2A690FD3_48FE9AC5
     }
     
         
@@ -405,10 +406,10 @@ partial class Program
         }
         for (int i = 0; i < unkDataHeaderModels.Count; i++)
         {
-            if (i != 230)
-            {
-                continue;
-            }
+            // if (i != 230)
+            // {
+            //     continue;
+            // }
             var unkDataHeader = unkDataHeaderModels[i];
             
             reader.BSeek(unkDataHeader.DataOffset10+0x4C);
@@ -672,15 +673,17 @@ partial class Program
 
                 List<Part> partDefinitions = parts[j];
                 
-                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}/model.obj")))
+                using (StreamWriter sw = new(Path.Combine(saveDir, $"{file}/models/{fileName}/model_{Endian.U64ToString(unkDataHeader.UnkId00)}.obj")))
                 {
                     // for (int k = part.VertexOffset04; k < part.VertexOffset04+part.VertexCount08; k++)
                     // {
                     //     sw.WriteLine($"v {vertices[k].Position.X} {vertices[k].Position.Y} {vertices[k].Position.Z}");
                     //     sw.WriteLine($"vt {vertices[k].Texcoord.X} {vertices[k].Texcoord.Y}");
                     // }
+                    int q = 0;
                     foreach (var vertex in vertices)
                     {
+                        sw.WriteLine($"i {q++}");
                         sw.WriteLine($"v {vertex.Position.X} {vertex.Position.Y} {vertex.Position.Z}");
                         sw.WriteLine($"vt {vertex.Texcoord.X} {vertex.Texcoord.Y}");
                     }
@@ -799,7 +802,14 @@ partial class Program
                 File.WriteAllBytes(filename, ddsHeaderBytes.Concat(gpuData).ToArray());
             }
         }
-
+        
+        List<UnkDataHeader> mapHeaders = unkDataHeaders.Where(kvp => kvp.Value.Count > 0 && kvp.Value[0].UnkId08 == (ulong)ResourceType.Map).Select(kvp => kvp.Value).FirstOrDefault();
+        if (mapHeaders.Count == 0)
+        {
+            return;
+        }
+        Debug.Assert(mapHeaders.Count == 1);
+        UnkDataHeader mapHeader = mapHeaders[0];
 
         var a = 0;
     }
